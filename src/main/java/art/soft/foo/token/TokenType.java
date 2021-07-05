@@ -105,7 +105,7 @@ public enum TokenType {
     RANGE_INCL_LEFT("..<", OPERATOR),
     RANGE_INCL_RIGHT("<..", OPERATOR),
     RANGE_NOT_INCL("<..<", OPERATOR),
-    COMPOSITION("...", OPERATOR),
+    SPREAD("...", OPERATOR),
     PARTIAL_APPLY("$", OPERATOR), // partial application
 
     LPAREN("(", OPERATOR),
