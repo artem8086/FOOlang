@@ -26,7 +26,6 @@ public enum TokenType {
     BOOL_TRUE("true", KEYWORD),
     BOOL_FALSE("false", KEYWORD),
     NONE("none", KEYWORD),
-    VOID("void", KEYWORD),
 
     // Guard
     WHERE("where", KEYWORD),
