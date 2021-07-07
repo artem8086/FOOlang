@@ -177,7 +177,7 @@ public class Scanner {
         }
         final int length = buffer.length();
         if (length > 0) {
-            return getToken(TokenType.NUMBER_INTEGER_HEX, buffer.toString());
+            return getToken(TokenType.NUMBER_INTEGER_OCT, buffer.toString());
         } else {
             throw error("Invalid oct number");
         }
@@ -195,7 +195,7 @@ public class Scanner {
         }
         final int length = buffer.length();
         if (length > 0) {
-            return getToken(TokenType.NUMBER_INTEGER_HEX, buffer.toString());
+            return getToken(TokenType.NUMBER_INTEGER_BIN, buffer.toString());
         } else {
             throw error("Invalid bin number");
         }
