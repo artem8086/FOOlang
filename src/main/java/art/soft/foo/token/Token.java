@@ -1,6 +1,5 @@
-package art.soft.foo.lexer;
+package art.soft.foo.token;
 
-import art.soft.foo.token.TokenType;
 import lombok.Value;
 
 /**
@@ -17,10 +16,10 @@ public class Token {
     String text;
     SourcePosition position;
 
-    public Token(TokenType type, String text, int col, int row) {
+    public Token(TokenType type, String text, int col, int row, int len) {
         this.type = type;
         this.text = text;
-        this.position = new SourcePosition(col, row);
+        this.position = new SourcePosition(col, row, len);
     }
 
     public String position() {

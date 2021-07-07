@@ -1,4 +1,4 @@
-package art.soft.foo.lexer;
+package art.soft.foo.token;
 
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
@@ -14,11 +14,12 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class SourcePosition {
 
-    int row, col;
+    private int row, col, len;
 
     public void setSourcePosition(SourcePosition position) {
         this.row = position.getRow();
         this.col = position.getCol();
+        this.len = position.getLen();
     }
 
     @Override
@@ -36,7 +37,7 @@ public class SourcePosition {
             for (int i = col - 1; i > 0; i --) {
                 error.append(' ');
             }
-            error.append("^\n");
+            error.append("^".repeat(Math.max(1, len))).append("\n");
         } catch (ArrayIndexOutOfBoundsException ignored) {}
         error.append("    ").append(message);
         return error.toString();

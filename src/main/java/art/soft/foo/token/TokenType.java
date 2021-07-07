@@ -100,6 +100,7 @@ public enum TokenType {
 
     ROCKET("->", OPERATOR),
     SEQUENCE(".>", OPERATOR),
+    LAMBDA("\\", OPERATOR),
     RANGE_INCL("..", OPERATOR),
     RANGE_INCL_LEFT("..<", OPERATOR),
     RANGE_INCL_RIGHT("<..", OPERATOR),

@@ -1,7 +1,9 @@
-package art.soft.foo.lexer;
+package art.soft.foo.scanner;
 
 
 import art.soft.foo.config.Config;
+import art.soft.foo.token.SourcePosition;
+import art.soft.foo.token.Token;
 import art.soft.foo.token.TokenType;
 
 import java.util.ArrayList;
@@ -12,13 +14,15 @@ import java.util.Map;
  *
  * @author Artem8086
  */
-public class Lexer {
+public class Scanner {
 
     public static List<Token> tokenize(String input, Config config) {
-        return new Lexer(input, config).tokenize();
+        return new Scanner(input, config).tokenize();
     }
 
-    private static final String OPERATOR_CHARS = "@$+-*/%()[]{}=<>!&|.,^~?:;";
+    private static final Token EOF = new Token(TokenType.EOF, "", -1, -1, 0);
+
+    private static final String OPERATOR_CHARS = "@$+-*/%()[]{}=<>!&|.,^~?:;\\";
 
     private static final Map<String, TokenType> OPERATORS = TokenType.toMapByType(TokenType.Type.OPERATOR);
 
@@ -27,40 +31,53 @@ public class Lexer {
     private final Config config;
 
     private final String input;
+    private final String[] lines;
+
     private final int length;
 
-    private final List<Token> tokens;
     private final StringBuilder buffer;
 
     private int pos;
     private int startRow, startCol;
-    private int row, col;
+    private int row, col, len;
 
-    public Lexer(String input, Config config) {
+    public Scanner(String input, Config config) {
         this.input = input;
+        this.lines = input.split("\n");
         this.config = config;
         length = input.length();
 
-        tokens = new ArrayList<>();
         buffer = new StringBuilder();
         row = col = 1;
         startRow = startCol = 1;
     }
 
     public List<Token> tokenize() {
+        final List<Token> tokens = new ArrayList<>();
+        while (true) {
+            Token token = nextToken();
+            if (token == EOF) break;
+            tokens.add(token);
+        }
+        return tokens;
+    }
+
+    public Token nextToken() {
         while (pos < length) {
             startRow = row;
             startCol = col;
+            len = 0;
             final char current = peek(0);
-            if (Character.isDigit(current)) tokenizeNumber();
-            else if (isIdentifierStart(current)) tokenizeIdentifier();
-            else if (current == '#') tokenizeAtomIdentifier();
-            else if (current == '`') tokenizeExtendedWord();
-            else if (current == '"') tokenizeString('"');
-            else if (current == '\'') tokenizeString('\'');
-            else if (current == '\\') tokenizeTextBlock();
+            if (Character.isDigit(current)) return tokenizeNumber();
+            else if (isIdentifierStart(current)) return tokenizeIdentifier();
+            else if (current == '#') return tokenizeAtomIdentifier();
+            else if (current == '`') return tokenizeExtendedWord();
+            else if (current == '"') return tokenizeString('"');
+            else if (current == '\'') return tokenizeString('\'');
+            else if (current == '\\' && peek(1) == '\\') return tokenizeTextBlock();
             else if (OPERATOR_CHARS.indexOf(current) != -1) {
-                tokenizeOperator();
+                Token token = tokenizeOperator();
+                if (token != null) return token;
             } else {
                 // whitespaces
                 if (!Character.isWhitespace(current)) {
@@ -69,10 +86,10 @@ public class Lexer {
                 next();
             }
         }
-        return tokens;
+        return EOF;
     }
 
-    private void tokenizeNumber() {
+    private Token tokenizeNumber() {
         clearBuffer();
         char current = peek(0);
         if (current == '0') {
@@ -80,18 +97,15 @@ public class Lexer {
             if (nextChar == 'x' || (nextChar == 'X')) {
                 next();
                 next();
-                tokenizeHexNumber();
-                return;
+                return tokenizeHexNumber();
             } else if (nextChar == 'o') {
                 next();
                 next();
-                tokenizeOctNumber();
-                return;
+                return tokenizeOctNumber();
             } else if (nextChar == 'b' || nextChar == 'B') {
                 next();
                 next();
-                tokenizeBinNumber();
-                return;
+                return tokenizeBinNumber();
             }
         }
         boolean isFloat = false;
@@ -130,10 +144,10 @@ public class Lexer {
             }
             current = next();
         }
-        addToken(isFloat ? TokenType.NUMBER_FLOAT : TokenType.NUMBER_INTEGER, buffer.toString());
+        return getToken(isFloat ? TokenType.NUMBER_FLOAT : TokenType.NUMBER_INTEGER, buffer.toString());
     }
 
-    private void tokenizeHexNumber() {
+    private Token tokenizeHexNumber() {
         clearBuffer();
         char current = peek(0);
         while (isHexNumber(current) || (current == '_')) {
@@ -145,11 +159,13 @@ public class Lexer {
         }
         final int length = buffer.length();
         if (length > 0) {
-            addToken(TokenType.NUMBER_INTEGER_HEX, buffer.toString());
+            return getToken(TokenType.NUMBER_INTEGER_HEX, buffer.toString());
+        } else {
+            throw error("Invalid hex number");
         }
     }
 
-    private void tokenizeOctNumber() {
+    private Token tokenizeOctNumber() {
         clearBuffer();
         char current = peek(0);
         while (isOctNumber(current) || (current == '_')) {
@@ -161,11 +177,13 @@ public class Lexer {
         }
         final int length = buffer.length();
         if (length > 0) {
-            addToken(TokenType.NUMBER_INTEGER_OCT, buffer.toString());
+            return getToken(TokenType.NUMBER_INTEGER_HEX, buffer.toString());
+        } else {
+            throw error("Invalid oct number");
         }
     }
 
-    private void tokenizeBinNumber() {
+    private Token tokenizeBinNumber() {
         clearBuffer();
         char current = peek(0);
         while (isBinNumber(current) || (current == '_')) {
@@ -177,7 +195,9 @@ public class Lexer {
         }
         final int length = buffer.length();
         if (length > 0) {
-            addToken(TokenType.NUMBER_INTEGER_BIN, buffer.toString());
+            return getToken(TokenType.NUMBER_INTEGER_HEX, buffer.toString());
+        } else {
+            throw error("Invalid bin number");
         }
     }
 
@@ -195,7 +215,7 @@ public class Lexer {
         return '0' == current || current == '1';
     }
 
-    private void tokenizeOperator() {
+    private Token tokenizeOperator() {
         char current = peek(0);
         if (current == '/') {
             if (peek(1) == '/') {
@@ -203,31 +223,29 @@ public class Lexer {
                 next();
                 if (peek(0) == '/' && peek(1) != '/') {
                     next();
-                    tokenizeDocumentation();
-                } else {
-                    tokenizeComment();
+                    return tokenizeDocumentation();
                 }
-                return;
+                tokenizeComment();
+                return null;
             } else if (peek(1) == '*') {
                 next();
                 next();
                 tokenizeMultilineComment();
-                return;
+                return null;
             }
         }
         clearBuffer();
         while (true) {
             final String text = buffer.toString();
             if (!text.isEmpty() && !OPERATORS.containsKey(text + current)) {
-                addToken(OPERATORS.get(text));
-                return;
+                return getToken(OPERATORS.get(text));
             }
             buffer.append(current);
             current = next();
         }
     }
 
-    private void tokenizeIdentifier() {
+    private Token tokenizeIdentifier() {
         clearBuffer();
         buffer.append(peek(0));
         char current = next();
@@ -241,20 +259,19 @@ public class Lexer {
 
         final String word = buffer.toString();
         if (KEYWORDS.containsKey(word)) {
-            addToken(KEYWORDS.get(word));
+            return getToken(KEYWORDS.get(word));
         } else {
-            addToken(TokenType.IDENTIFIER, word);
+            return getToken(TokenType.IDENTIFIER, word);
         }
     }
 
-    private void tokenizeAtomIdentifier() {
+    private Token tokenizeAtomIdentifier() {
         char current = next();
         if (current == '\'' || current == '"') {
-            tokenizeRawString(current);
-            return;
+            return tokenizeRawString(current);
         }
         if (!isIdentifierStart(current)) {
-            throw new LexerException("Atom identifier must start with correct identifier symbol");
+            throw new ScannerException("Atom identifier must start with correct identifier symbol");
         }
         clearBuffer();
         while (true) {
@@ -266,10 +283,10 @@ public class Lexer {
         }
 
         final String word = buffer.toString();
-        addToken(TokenType.ATOM, word);
+        return getToken(TokenType.ATOM, word);
     }
 
-    private void tokenizeExtendedWord() {
+    private Token tokenizeExtendedWord() {
         next();// skip `
         clearBuffer();
         char current = peek(0);
@@ -281,10 +298,10 @@ public class Lexer {
             current = next();
         }
         next(); // skip closing `
-        addToken(TokenType.IDENTIFIER, buffer.toString());
+        return getToken(TokenType.IDENTIFIER, buffer.toString());
     }
 
-    private void tokenizeString(char closingSymbol) {
+    private Token tokenizeString(char closingSymbol) {
         next(); // skip start character
         clearBuffer();
         while (true) {
@@ -297,10 +314,10 @@ public class Lexer {
         }
         next(); // skip closing character
 
-        addToken(TokenType.STRING, buffer.toString());
+        return getToken(TokenType.STRING, buffer.toString());
     }
 
-    private void tokenizeRawString(char closingSymbol) {
+    private Token tokenizeRawString(char closingSymbol) {
         next(); // skip start character
         clearBuffer();
         while (true) {
@@ -312,13 +329,11 @@ public class Lexer {
         }
         next(); // skip closing character
 
-        addToken(TokenType.STRING, buffer.toString());
+        return getToken(TokenType.STRING, buffer.toString());
     }
 
-    private void tokenizeTextBlock() {
-        if (next() != '\\') { // skip '\'
-            throw new LexerException("Incorrect multi line string. '\\' excepted ");
-        }
+    private Token tokenizeTextBlock() {
+        next(); // skip '\'
         next(); // skip '\'
         clearBuffer();
         while (true) {
@@ -328,7 +343,7 @@ public class Lexer {
                 while (Character.isWhitespace(next())) {}
                 if (peek(0) != '\\') break;
                 if (next() != '\\') { // skip '\'
-                    throw new LexerException("Incorrect multi line string. '\\' excepted ");
+                    throw new ScannerException("Incorrect multi line string. '\\' excepted ");
                 }
             }
             if (current == '\0') break;
@@ -336,7 +351,7 @@ public class Lexer {
             next();
         }
 
-        addToken(TokenType.STRING, buffer.toString());
+        return getToken(TokenType.STRING, buffer.toString());
     }
 
     private boolean charEscape(char current) {
@@ -385,7 +400,7 @@ public class Lexer {
         return false;
     }
 
-    private void tokenizeDocumentation() {
+    private Token tokenizeDocumentation() {
         clearBuffer();
         boolean skipWhitespace = true;
         char current = peek(0);
@@ -397,7 +412,7 @@ public class Lexer {
             }
             current = next();
         }
-        addToken(TokenType.DOCUMENTATION, buffer.toString());
+        return getToken(TokenType.DOCUMENTATION, buffer.toString());
     }
 
     private void tokenizeComment() {
@@ -432,6 +447,7 @@ public class Lexer {
     }
 
     private char next() {
+        len++;
         pos++;
         final char result = peek(0);
         if (result == '\n') {
@@ -448,16 +464,16 @@ public class Lexer {
         return input.charAt(position);
     }
 
-    private void addToken(TokenType type) {
-        addToken(type, "");
+    private Token getToken(TokenType type) {
+        return getToken(type, "");
     }
 
-    private void addToken(TokenType type, String text) {
-        tokens.add(new Token(type, text, startRow, startCol));
+    private Token getToken(TokenType type, String text) {
+        return new Token(type, text, startRow, startCol, len);
     }
 
-    private LexerException error(String text) {
-        SourcePosition position = new SourcePosition(startCol, startRow);
-        return new LexerException(position.getErrorMessage("LexerError: " + text, input.split("\n")));
+    private ScannerException error(String text) {
+        SourcePosition position = new SourcePosition(startCol, startRow, len);
+        return new ScannerException(position.getErrorMessage("LexerError: " + text, lines));
     }
 }
