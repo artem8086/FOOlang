@@ -1,7 +1,6 @@
-package art.soft.foo.scanner;
+package art.soft.foo.lexer;
 
 
-import art.soft.foo.config.Config;
 import art.soft.foo.token.SourcePosition;
 import art.soft.foo.token.Token;
 import art.soft.foo.token.TokenType;
@@ -14,13 +13,11 @@ import java.util.Map;
  *
  * @author Artem8086
  */
-public class Scanner {
+public class Lexer {
 
-    public static List<Token> tokenize(String input, Config config) {
-        return new Scanner(input, config).tokenize();
+    public static List<Token> tokenize(String input) {
+        return new Lexer(input).tokenize();
     }
-
-    private static final Token EOF = new Token(TokenType.EOF, "", -1, -1, 0);
 
     private static final String OPERATOR_CHARS = "@$+-*/%()[]{}=<>!&|.,^~?:;\\";
 
@@ -28,10 +25,9 @@ public class Scanner {
 
     private static final Map<String, TokenType> KEYWORDS = TokenType.toMapByType(TokenType.Type.KEYWORD);
 
-    private final Config config;
+    private final List<Token> tokens;
 
     private final String input;
-    private final String[] lines;
 
     private final int length;
 
@@ -41,55 +37,46 @@ public class Scanner {
     private int startRow, startCol;
     private int row, col, len;
 
-    public Scanner(String input, Config config) {
+    public Lexer(String input) {
         this.input = input;
-        this.lines = input.split("\n");
-        this.config = config;
         length = input.length();
 
         buffer = new StringBuilder();
+        tokens = new ArrayList<>();
         row = col = 1;
         startRow = startCol = 1;
     }
 
     public List<Token> tokenize() {
-        final List<Token> tokens = new ArrayList<>();
-        while (true) {
-            Token token = nextToken();
-            if (token == EOF) break;
-            tokens.add(token);
-        }
-        return tokens;
-    }
-
-    public Token nextToken() {
         while (pos < length) {
             startRow = row;
             startCol = col;
             len = 0;
             final char current = peek(0);
-            if (Character.isDigit(current)) return tokenizeNumber();
-            else if (isIdentifierStart(current)) return tokenizeIdentifier();
-            else if (current == '#') return tokenizeAtomIdentifier();
-            else if (current == '`') return tokenizeExtendedWord();
-            else if (current == '"') return tokenizeString('"');
-            else if (current == '\'') return tokenizeString('\'');
-            else if (current == '\\' && peek(1) == '\\') return tokenizeTextBlock();
+            if (Character.isDigit(current)) tokenizeNumber();
+            else if (isIdentifierStart(current)) tokenizeIdentifier();
+            else if (current == '#') tokenizeAtomIdentifier();
+            else if (current == '`') tokenizeExtendedWord();
+            else if (current == '"') tokenizeString('"');
+            else if (current == '\'') tokenizeString('\'');
+            else if (current == '\\' && peek(1) == '\\') tokenizeTextBlock();
             else if (OPERATOR_CHARS.indexOf(current) != -1) {
-                Token token = tokenizeOperator();
-                if (token != null) return token;
+                tokenizeOperator();
             } else {
                 // whitespaces
+                if (current == '\t') {
+                    throw error("Tab indentation not allowed");
+                }
                 if (!Character.isWhitespace(current)) {
                     throw error("Unknown character '" + current + "'");
                 }
                 next();
             }
         }
-        return EOF;
+        return tokens;
     }
 
-    private Token tokenizeNumber() {
+    private void tokenizeNumber() {
         clearBuffer();
         char current = peek(0);
         if (current == '0') {
@@ -97,15 +84,18 @@ public class Scanner {
             if (nextChar == 'x' || (nextChar == 'X')) {
                 next();
                 next();
-                return tokenizeHexNumber();
+                tokenizeHexNumber();
+                return;
             } else if (nextChar == 'o') {
                 next();
                 next();
-                return tokenizeOctNumber();
+                tokenizeOctNumber();
+                return;
             } else if (nextChar == 'b' || nextChar == 'B') {
                 next();
                 next();
-                return tokenizeBinNumber();
+                tokenizeBinNumber();
+                return;
             }
         }
         boolean isFloat = false;
@@ -144,10 +134,10 @@ public class Scanner {
             }
             current = next();
         }
-        return getToken(isFloat ? TokenType.NUMBER_FLOAT : TokenType.NUMBER_INTEGER, buffer.toString());
+        addToken(isFloat ? TokenType.NUMBER_FLOAT : TokenType.NUMBER_INTEGER, buffer.toString());
     }
 
-    private Token tokenizeHexNumber() {
+    private void tokenizeHexNumber() {
         clearBuffer();
         char current = peek(0);
         while (isHexNumber(current) || (current == '_')) {
@@ -159,13 +149,13 @@ public class Scanner {
         }
         final int length = buffer.length();
         if (length > 0) {
-            return getToken(TokenType.NUMBER_INTEGER_HEX, buffer.toString());
+            addToken(TokenType.NUMBER_INTEGER_HEX, buffer.toString());
         } else {
             throw error("Invalid hex number");
         }
     }
 
-    private Token tokenizeOctNumber() {
+    private void tokenizeOctNumber() {
         clearBuffer();
         char current = peek(0);
         while (isOctNumber(current) || (current == '_')) {
@@ -177,13 +167,13 @@ public class Scanner {
         }
         final int length = buffer.length();
         if (length > 0) {
-            return getToken(TokenType.NUMBER_INTEGER_OCT, buffer.toString());
+            addToken(TokenType.NUMBER_INTEGER_OCT, buffer.toString());
         } else {
             throw error("Invalid oct number");
         }
     }
 
-    private Token tokenizeBinNumber() {
+    private void tokenizeBinNumber() {
         clearBuffer();
         char current = peek(0);
         while (isBinNumber(current) || (current == '_')) {
@@ -195,7 +185,7 @@ public class Scanner {
         }
         final int length = buffer.length();
         if (length > 0) {
-            return getToken(TokenType.NUMBER_INTEGER_BIN, buffer.toString());
+            addToken(TokenType.NUMBER_INTEGER_BIN, buffer.toString());
         } else {
             throw error("Invalid bin number");
         }
@@ -215,7 +205,7 @@ public class Scanner {
         return '0' == current || current == '1';
     }
 
-    private Token tokenizeOperator() {
+    private void tokenizeOperator() {
         char current = peek(0);
         if (current == '/') {
             if (peek(1) == '/') {
@@ -223,29 +213,31 @@ public class Scanner {
                 next();
                 if (peek(0) == '/' && peek(1) != '/') {
                     next();
-                    return tokenizeDocumentation();
+                    tokenizeDocumentation();
+                } else {
+                    tokenizeComment();
                 }
-                tokenizeComment();
-                return null;
+                return;
             } else if (peek(1) == '*') {
                 next();
                 next();
                 tokenizeMultilineComment();
-                return null;
+                return;
             }
         }
         clearBuffer();
         while (true) {
             final String text = buffer.toString();
             if (!text.isEmpty() && !OPERATORS.containsKey(text + current)) {
-                return getToken(OPERATORS.get(text));
+                addToken(OPERATORS.get(text));
+                return;
             }
             buffer.append(current);
             current = next();
         }
     }
 
-    private Token tokenizeIdentifier() {
+    private void tokenizeIdentifier() {
         clearBuffer();
         buffer.append(peek(0));
         char current = next();
@@ -259,19 +251,20 @@ public class Scanner {
 
         final String word = buffer.toString();
         if (KEYWORDS.containsKey(word)) {
-            return getToken(KEYWORDS.get(word));
+            addToken(KEYWORDS.get(word));
         } else {
-            return getToken(TokenType.IDENTIFIER, word);
+            addToken(TokenType.IDENTIFIER, word);
         }
     }
 
-    private Token tokenizeAtomIdentifier() {
+    private void tokenizeAtomIdentifier() {
         char current = next();
         if (current == '\'' || current == '"') {
-            return tokenizeRawString(current);
+            tokenizeRawString(current);
+            return;
         }
         if (!isIdentifierStart(current)) {
-            throw new ScannerException("Atom identifier must start with correct identifier symbol");
+            throw new LexerException("Atom identifier must start with correct identifier symbol");
         }
         clearBuffer();
         while (true) {
@@ -283,10 +276,10 @@ public class Scanner {
         }
 
         final String word = buffer.toString();
-        return getToken(TokenType.ATOM, word);
+        addToken(TokenType.ATOM, word);
     }
 
-    private Token tokenizeExtendedWord() {
+    private void tokenizeExtendedWord() {
         next();// skip `
         clearBuffer();
         char current = peek(0);
@@ -298,10 +291,10 @@ public class Scanner {
             current = next();
         }
         next(); // skip closing `
-        return getToken(TokenType.IDENTIFIER, buffer.toString());
+        addToken(TokenType.IDENTIFIER, buffer.toString());
     }
 
-    private Token tokenizeString(char closingSymbol) {
+    private void tokenizeString(char closingSymbol) {
         next(); // skip start character
         clearBuffer();
         while (true) {
@@ -314,10 +307,10 @@ public class Scanner {
         }
         next(); // skip closing character
 
-        return getToken(TokenType.STRING, buffer.toString());
+        addToken(TokenType.STRING, buffer.toString());
     }
 
-    private Token tokenizeRawString(char closingSymbol) {
+    private void tokenizeRawString(char closingSymbol) {
         next(); // skip start character
         clearBuffer();
         while (true) {
@@ -329,10 +322,10 @@ public class Scanner {
         }
         next(); // skip closing character
 
-        return getToken(TokenType.STRING, buffer.toString());
+        addToken(TokenType.STRING, buffer.toString());
     }
 
-    private Token tokenizeTextBlock() {
+    private void tokenizeTextBlock() {
         next(); // skip '\'
         next(); // skip '\'
         clearBuffer();
@@ -343,7 +336,7 @@ public class Scanner {
                 while (Character.isWhitespace(next())) {}
                 if (peek(0) != '\\') break;
                 if (next() != '\\') { // skip '\'
-                    throw new ScannerException("Incorrect multi line string. '\\' excepted ");
+                    throw new LexerException("Incorrect multi line string. '\\' excepted ");
                 }
             }
             if (current == '\0') break;
@@ -351,7 +344,7 @@ public class Scanner {
             next();
         }
 
-        return getToken(TokenType.STRING, buffer.toString());
+        addToken(TokenType.STRING, buffer.toString());
     }
 
     private boolean charEscape(char current) {
@@ -400,7 +393,7 @@ public class Scanner {
         return false;
     }
 
-    private Token tokenizeDocumentation() {
+    private void tokenizeDocumentation() {
         clearBuffer();
         boolean skipWhitespace = true;
         char current = peek(0);
@@ -412,7 +405,7 @@ public class Scanner {
             }
             current = next();
         }
-        return getToken(TokenType.DOCUMENTATION, buffer.toString());
+        addToken(TokenType.DOCUMENTATION, buffer.toString());
     }
 
     private void tokenizeComment() {
@@ -453,8 +446,7 @@ public class Scanner {
         if (result == '\n') {
             row++;
             col = 0;
-        } else if (result == '\t') col += config.getIndentationTabSize();
-        else col++;
+        } else col++;
         return result;
     }
 
@@ -464,16 +456,16 @@ public class Scanner {
         return input.charAt(position);
     }
 
-    private Token getToken(TokenType type) {
-        return getToken(type, "");
+    private void addToken(TokenType type) {
+        addToken(type, "");
     }
 
-    private Token getToken(TokenType type, String text) {
-        return new Token(type, text, startRow, startCol, len);
+    private void addToken(TokenType type, String text) {
+        tokens.add(new Token(type, text, startRow, startCol, len));
     }
 
-    private ScannerException error(String text) {
+    private LexerException error(String text) {
         SourcePosition position = new SourcePosition(startCol, startRow, len);
-        return new ScannerException(position.getErrorMessage("LexerError: " + text, lines));
+        return new LexerException(position.getErrorMessage("LexerError: " + text, input.split("\n")));
     }
 }
